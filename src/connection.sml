@@ -10,14 +10,6 @@ structure PostgresClient = struct
             socket
         end
 
-    fun read (socket: Socket.active INetSock.stream_sock) =
-        case Socket.select{rds = [Socket.sockDesc socket], wrs=[], exs=[], timeout=SOME(Time.fromSeconds 10)} of
-            { rds = [], ...} => ()
-        |  _ => let val text = Socket.recvVec(socket, 1)
-                in if Word8Vector.length text = 0 then ()
-                        else ( print(Byte.bytesToString text); read socket )
-                end
-
     fun convertString (elem: string) =
         (Word8Vector.fromList (List.map Byte.charToByte (String.explode elem)))
 
@@ -50,24 +42,12 @@ structure PostgresClient = struct
             val protocolVersion = 
                 Word8Vector.fromList [0w0, 0w3, 0w0, 0w0]
             val buffer = Word8VectorSlice.full (Word8Vector.concat [ length, protocolVersion, message ])
-            (* val buffer = Word8VectorSlice.full (Word8Vector.concat [length, protocolVersion, serializedMessage]) *)
-            (* val socket = connect() *)
-            (* val buffer2 =  *)
-                (* Hardcoded but correct startup message *)
-                (* Word8VectorSlice.full *)
-                    (* (Word8Vector.fromList *)
-                        (* [ 0wx00, 0wx00, 0wx00, 0wx24, 0wx00, 0wx03, 0wx00, 0wx00, 0wx75, 0wx73, 0wx65, 0wx72, 0wx00, 0wx61, 0wx64, 0wx6d, 0wx69, 0wx6e, 0wx00, 0wx64, 0wx61, 0wx74, 0wx61, 0wx62, 0wx61, 0wx73, 0wx65, 0wx00, 0wx73, 0wx6f, 0wx63, 0wx6b, 0wx65, 0wx74, 0wx00, 0wx00 ]) *)
             val buf = PolyML.makestring buffer
-            (* val buf2 = PolyML.makestring buffer2 *)
         in 
             print buf;
             print "\n\n";
-            (* print buf2; *)
 
             Socket.sendVec(socket, buffer)
-            (* read socket; *)
-            
-            (* Socket.close socket *)
         end
 
         fun parser (socket: Socket.active INetSock.stream_sock) =
