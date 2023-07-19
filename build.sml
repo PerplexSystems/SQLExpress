@@ -1,5 +1,1 @@
-app use [
-    "src/md5.sml",
-    "src/connection.sml",
-    "tests/main.sml"
-]
+app use ["src/md5.sml", "src/connection.sml", "tests/main.sml"];
