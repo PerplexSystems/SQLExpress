@@ -1,4 +1,8 @@
+(* https://www.postgresql.org/docs/current/protocol-message-formats.html *)
+
 structure PostgresClient = struct
+
+    datatype 't Operation = OK | ERROR of 't
 
     fun connect () =
         let 
@@ -50,19 +54,71 @@ structure PostgresClient = struct
             Socket.sendVec(socket, buffer)
         end
 
+        fun password (message: Word8Vector.vector) =
+            
+            let 
+                val (vec, _, _) = Word8VectorSlice.base (Word8VectorSlice.slice (message, 0, SOME 4))
+            in 
+                case (bytesToInt vec) of
+                  0 => OK
+                | 5 => ERROR "MD5 method not implemented."
+                | _ => ERROR "Unindentified password method."
+            end
+            
+            (* let 
+                val inner = 
+                    MD5.final (MD5.update(MD5.init, convertString "admin\000admin"))
+                val pwd =
+                    Word8Vector.concat
+                        [(convertString "md5"),
+                         (MD5.final (MD5.update (MD5.init, (Word8Vector.concat [ inner, convertString salt ]))))]
+                val serialized = PolyML.makestring pwd
+            in 
+                print serialized
+            end *)
+
+        fun execute (socket: Socket.active INetSock.stream_sock) query =
+            let 
+                val queryFlag = 
+                    Word8VectorSlice.full (Word8Vector.fromList [Byte.charToByte #"Q"])
+                val serializedQuery = 
+                    Word8VectorSlice.full (convertString query)
+                val length = intToBytes (1 + 4 + Word8VectorSlice.length serializedQuery)
+                val message = Word8VectorSlice.full (Word8VectorSlice.concat [queryFlag, Word8VectorSlice.full length, serializedQuery])
+                val str = PolyML.makestring message
+            in  print str;
+                Socket.sendVec (socket, message);
+                OK
+            end 
+
         fun parser (socket: Socket.active INetSock.stream_sock) =
             let
-                val messageType = Byte.bytesToString (Socket.recvVec(socket, 1))
+                val messageType = 
+                    Byte.bytesToString (Socket.recvVec(socket, 1))
                 val length =  
                     bytesToInt(Socket.recvVec(socket, 4))
-                val mP =  PolyML.makestring messageType
-                val lP =  PolyML.makestring length
+                val message = Socket.recvVec(socket, length - 5)
+                val mP =  "Type: " ^ PolyML.makestring messageType
+                val lP = PolyML.makestring length
+                val messagePrint = PolyML.makestring message
+                val pwd = convertString "admin"
+                val x = Word8VectorSlice.full (Word8Vector.concat [Word8Vector.fromList [Byte.charToByte #"p"], intToBytes (Word8Vector.length pwd + 1 + 4), pwd])
             in 
+                print "\n\n";
+                print messagePrint;
+                print "\n\n";
+                print mP;
+                print "\n\n";
                 case messageType of
-                    "R" => print "Password"
-                  | "Z" => print "ReadyForQuery"
-                  | "E" => print "Error"
-                  | _ => print "NAY";
-                Socket.close socket
+                    "R" =>
+                    (print "Authenticating";
+                     password (Socket.recvVec(socket, length)))
+                  | _ => 
+                    (print "Ready for query";
+                     execute socket "SELECT 'Hello :)'")
+                  (* | "E" => ERROR "Error" *)
+                  (* | "p" => (Socket.sendVec(socket, x); ERROR "Password response") *)
+                  (* | "\^V" => (print lP; OK) *)
+                  (* | _ => ERROR "NAY" *)
             end
 end
