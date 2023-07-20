@@ -110,11 +110,9 @@ struct
       OK
     end
 
-  type Retrieval =
-       { sqlType: string,
-         records: string list }
+  type Retrieval = {name: string, sqlType: string, records: string list}
 
-  fun parser (socket: Socket.active INetSock.stream_sock) (dic: (string * Retrieval) list) =
+  fun parser (socket: Socket.active INetSock.stream_sock) (dic: Retrieval list) =
     let
       val messageType = (* Byte.bytesToString ( *) Socket.recvVec (socket, 1)
       val length = (* bytesToInt( *) Socket.recvVec (socket, 4)
@@ -124,7 +122,34 @@ struct
       val lP =
         "Length: " ^ PolyML.makestring length ^ " -> "
         ^ (Int.toString (bytesToInt length))
+      fun convertHeaders contents _ =
+        let
+          val reference = !contents
+        in
+          case Word8VectorSlice.findi (fn (_, byte) => byte = 0wx0) (!contents) of
+            SOME (index, _) =>
+              (* parser socket (Dictionary.assoc (Byte.bytesToString (Word8VectorSlice.concat [Word8VectorSlice.subslice ((!contents), 0, SOME index)])) [] dic) *)
+              ( contents
+                :=
+                Word8VectorSlice.subslice
+                  ( !contents
+                  , index
+                    +
+                    19 (* integers in the message for this field + 1 NULL byte *)
+                  , NONE
+                  )
+              ; { name = Byte.bytesToString (Word8VectorSlice.concat
+                    [Word8VectorSlice.subslice (reference, 0, SOME index)])
+                , sqlType = "X"
+                , records = []
+                }
+              )
+          | NONE => raise Fail "Could not find null terminated"
+        (* ; print ("FIELD: " ^ (!fieldName) ^ "\n") *)
+        end
+      val dicString = PolyML.makestring dic
     in
+      print ("----------->" ^ dicString);
       print "\n\n";
       print mP;
       print "\n\n";
@@ -172,49 +197,39 @@ struct
            in
              print ("Receiving " ^ Int.toString numberOfHeaders ^ " headers\n");
              if numberOfHeaders <> 0 then
-               (case
-                  Word8VectorSlice.findi (fn (_, byte) => byte = 0wx0)
-                    (!contents)
-                of
-                  SOME (index, _) => (
-		    (* parser socket (Dictionary.assoc (Byte.bytesToString (Word8VectorSlice.concat [Word8VectorSlice.subslice ((!contents), 0, SOME index)])) [] dic) *)
-		    fieldName
-                      :=
-                      Byte.bytesToString (Word8VectorSlice.concat
-                        [Word8VectorSlice.subslice ((!contents), 0, SOME index)])
-                  ; print ("FIELD: " ^ (!fieldName) ^ "\n")
-			   )
-                | NONE => ())
+               parser socket
+                 (List.tabulate (numberOfHeaders, convertHeaders contents))
              else
                print "Nothing :(\n"
            end
            handle SysErr => print "SYS\n")
-      | "D" => (
-	  let
-	      val numberOfColumns = bytesToInt16 (Socket.recvVec (socket, 2))
-	      val contents =
-		  ref (Word8VectorSlice.full (Socket.recvVec (socket, (bytesToInt length) - 4 - 2)))
-	      val firstSize =
-		  bytesToInt (Word8VectorSlice.concat
-				    [Word8VectorSlice.subslice ((!contents), 0, SOME 4)])
-              val fieldContent = ref ""
-	  in
-	      contents := Word8VectorSlice.subslice ((!contents), 4, NONE);
-	      print ("Receiving " ^ Int.toString numberOfColumns ^ " columns\n");
-              if numberOfColumns <> 0 then
-		  case firstSize of
-		      ~1 => fieldContent := "NULL"
-		    | n => (
-		      print ("SIZE: " ^ Int.toString firstSize ^ "\n");
-		      (* fieldContent := Byte.bytesToString (Word8VectorSlice.concat [ !contents]) *)
-		      fieldContent := Byte.bytesToString (Word8VectorSlice.concat [Word8VectorSlice.subslice ((!contents), 0, SOME n)])
-			(* parser socket (Dictionary.assoc (Byte.bytesToString (Word8VectorSlice.concat [Word8VectorSlice.subslice ((!contents), 0, SOME index)])) [] dic) *)
-		    )
-              else
-		  print "Nothing :(\n";
-	      print ("Received: " ^ (!fieldContent))
-	  end
-      )
+      | "D" =>
+          let
+            val numberOfColumns = bytesToInt16 (Socket.recvVec (socket, 2))
+            val contents = ref (Word8VectorSlice.full (Socket.recvVec
+              (socket, (bytesToInt length) - 4 - 2)))
+            val firstSize = bytesToInt (Word8VectorSlice.concat
+              [Word8VectorSlice.subslice ((!contents), 0, SOME 4)])
+            val fieldContent = ref ""
+          in
+            contents := Word8VectorSlice.subslice ((!contents), 4, NONE);
+            print ("Receiving " ^ Int.toString numberOfColumns ^ " columns\n");
+            if numberOfColumns <> 0 then
+              case firstSize of
+                ~1 => fieldContent := "NULL"
+              | n =>
+                  ( print ("SIZE: " ^ Int.toString firstSize ^ "\n")
+                  ; (* fieldContent := Byte.bytesToString (Word8VectorSlice.concat [ !contents]) *)
+                    fieldContent
+                    :=
+                    Byte.bytesToString (Word8VectorSlice.concat
+                      [Word8VectorSlice.subslice ((!contents), 0, SOME n)])
+                  (* parser socket (Dictionary.assoc (Byte.bytesToString (Word8VectorSlice.concat [Word8VectorSlice.subslice ((!contents), 0, SOME index)])) [] dic) *)
+                  )
+            else
+              print "Nothing :(\n";
+            print ("Received: " ^ (!fieldContent))
+          end
       | _ =>
           ( print "Ignoring"
           ; Socket.recvVec (socket, (bytesToInt length) - 4)
