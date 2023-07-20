@@ -3,8 +3,9 @@ fun main _ =
     val socket = PostgresClient.connect ()
   in
     PostgresClient.startup socket;
-    PostgresClient.parser socket;
+    PostgresClient.parser socket [];
     PostgresClient.execute socket "SELECT 'Hello :)' AS Message";
-    PostgresClient.parser socket;
+    PostgresClient.parser socket [];
+    PostgresClient.parser socket [];
     Socket.close socket
   end
