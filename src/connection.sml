@@ -1,6 +1,14 @@
 (* https://www.postgresql.org/docs/current/protocol-message-formats.html *)
+signature VENDOR_DRIVER = sig
+  datatype 't Operation = OK | ERROR of 't
+  val connect: unit -> (INetSock.inet, Socket.active Socket.stream) Socket.sock
+  val startup: (INetSock.inet, Socket.active Socket.stream) Socket.sock -> int
+  val execute: (INetSock.inet, Socket.active Socket.stream) Socket.sock -> string -> 'a Operation
+  val parser: (INetSock.inet, Socket.active Socket.stream) Socket.sock -> unit
+  val display: unit -> unit
+end
 
-structure PostgresClient =
+structure PostgresClient : VENDOR_DRIVER =
 struct
 
   datatype 't Operation = OK | ERROR of 't
@@ -35,9 +43,12 @@ struct
       val second = sub (slices, 1)
       val third = sub (slices, 2)
       val fourth = sub (slices, 3)
-    in
-      Word8.toInt (orb (fourth, (orb ((<<(third, 0wx8)), (orb
+      val calculated = Word8.toInt (orb (fourth, (orb ((<<(third, 0wx8)), (orb
         ((<<(second, 0wx16)), (<<(first, 0wx24))))))))
+    in
+      case calculated of
+        255 => ~1 (* Overflow: Fix later with Word 32*)
+      | n => n
     end
 
   fun bytesToInt16 (bytes: Word8Vector.vector) =
@@ -112,7 +123,9 @@ struct
 
   type Retrieval = {name: string, sqlType: string, records: string list}
 
-  fun parser (socket: Socket.active INetSock.stream_sock) (dic: Retrieval list) =
+  val results: Retrieval list ref = ref []
+
+  fun parser (socket: Socket.active INetSock.stream_sock) =
     let
       val messageType = (* Byte.bytesToString ( *) Socket.recvVec (socket, 1)
       val length = (* bytesToInt( *) Socket.recvVec (socket, 4)
@@ -147,10 +160,35 @@ struct
           | NONE => raise Fail "Could not find null terminated"
         (* ; print ("FIELD: " ^ (!fieldName) ^ "\n") *)
         end
-      val dicString = PolyML.makestring dic
+      fun convertData (elem: Retrieval) contents : Retrieval =
+        let
+          val reference = !contents
+          val size = bytesToInt (Word8VectorSlice.concat
+            [Word8VectorSlice.subslice (!contents, 0, SOME 4)])
+        in
+          case size of
+            ~1 => (
+              
+              contents := Word8VectorSlice.subslice (!contents, 4, NONE);
+              { name = (#name elem)
+              , sqlType = (#sqlType elem)
+              , records = "NULL" :: (#records elem)
+              }
+            )
+          | n =>
+              (print ("NULL!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" ^ (Int.toString n) ^ "\n");
+              contents := Word8VectorSlice.subslice (!contents, 4 + n, NONE)
+              ; { name = (#name elem)
+                , sqlType = (#sqlType elem)
+                , records =
+                    (Byte.bytesToString (Word8VectorSlice.concat
+                       [Word8VectorSlice.subslice (reference, 4, SOME n)]))
+                    :: (#records elem)
+                }
+              )
+        end
+        (* handle SysErr => (print "Here!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"; elem) *)
     in
-      print ("----------->" ^ dicString);
-      print "\n\n";
       print mP;
       print "\n\n";
       print lP;
@@ -160,7 +198,7 @@ struct
           ( print "Authenticating\n"
           ; password (Socket.recvVec (socket, (bytesToInt length) - 4))
           ; Posix.Process.sleep (Time.fromSeconds 1)
-          ; parser socket dic
+          ; parser socket
           )
       | "Z" =>
           ( print "ReadyForQuery\n"
@@ -176,29 +214,30 @@ struct
                (Byte.bytesToString (Socket.recvVec
                   (socket, (bytesToInt length) - 4))) ^ "\n")
           ; Posix.Process.sleep (Time.fromSeconds 1)
-          ; parser socket dic
+          ; parser socket
           )
       | "S" =>
           ( print "Syncing...\n"
           ; Socket.recvVec (socket, (bytesToInt length) - 4)
-          ; (* Posix.Process.sleep (Time.fromSeconds 1); *) parser socket dic
+          ; (* Posix.Process.sleep (Time.fromSeconds 1); *) parser socket
           )
       | "K" =>
           ( print "BackendKeyData\n"
           ; Socket.recvVec (socket, (bytesToInt length) - 4)
-          ; parser socket dic
+          ; parser socket
           )
       | "T" =>
           (let
              val numberOfHeaders = bytesToInt16 (Socket.recvVec (socket, 2))
              val contents = ref (Word8VectorSlice.full (Socket.recvVec
                (socket, (bytesToInt length) - 4 - 2)))
-             val fieldName = ref ""
            in
              print ("Receiving " ^ Int.toString numberOfHeaders ^ " headers\n");
              if numberOfHeaders <> 0 then
-               parser socket
-                 (List.tabulate (numberOfHeaders, convertHeaders contents))
+               ( results
+                 := (List.tabulate (numberOfHeaders, convertHeaders contents))
+               ; parser socket
+               )
              else
                print "Nothing :(\n"
            end
@@ -208,33 +247,27 @@ struct
             val numberOfColumns = bytesToInt16 (Socket.recvVec (socket, 2))
             val contents = ref (Word8VectorSlice.full (Socket.recvVec
               (socket, (bytesToInt length) - 4 - 2)))
-            val firstSize = bytesToInt (Word8VectorSlice.concat
-              [Word8VectorSlice.subslice ((!contents), 0, SOME 4)])
-            val fieldContent = ref ""
           in
-            contents := Word8VectorSlice.subslice ((!contents), 4, NONE);
-            print ("Receiving " ^ Int.toString numberOfColumns ^ " columns\n");
             if numberOfColumns <> 0 then
-              case firstSize of
-                ~1 => fieldContent := "NULL"
-              | n =>
-                  ( print ("SIZE: " ^ Int.toString firstSize ^ "\n")
-                  ; (* fieldContent := Byte.bytesToString (Word8VectorSlice.concat [ !contents]) *)
-                    fieldContent
-                    :=
-                    Byte.bytesToString (Word8VectorSlice.concat
-                      [Word8VectorSlice.subslice ((!contents), 0, SOME n)])
-                  (* parser socket (Dictionary.assoc (Byte.bytesToString (Word8VectorSlice.concat [Word8VectorSlice.subslice ((!contents), 0, SOME index)])) [] dic) *)
-                  )
+              ( results
+                :=
+                (List.map (fn (elem: Retrieval) => convertData elem contents)
+                   (!results))
+              ; parser socket
+              )
             else
-              print "Nothing :(\n";
-            print ("Received: " ^ (!fieldContent))
+              print "Nothing to process."
           end
       | _ =>
           ( print "Ignoring"
           ; Socket.recvVec (socket, (bytesToInt length) - 4)
           ; Posix.Process.sleep (Time.fromSeconds 1)
-          ; parser socket dic
+          ; parser socket
           )
+    end
+
+  fun display () =
+    let val str = PolyML.makestring (!results)
+    in print (str ^ "\n")
     end
 end
