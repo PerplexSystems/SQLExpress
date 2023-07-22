@@ -30,7 +30,7 @@
             inherit inputs pkgs;
             modules = [
               ({ pkgs, lib, ... }: {
-                packages = [ pkgs.millet pkgs.mlton pkgs.polyml pkgs.smlfmt pkgs.gnumake pkgs.gcc pkgs.glibc pkgs.libressl ];
+                packages = [ pkgs.millet pkgs.polyml pkgs.smlfmt pkgs.gnumake pkgs.gcc pkgs.glibc pkgs.libressl ];
 
                 services.postgres = {
                   package = pkgs.postgresql_15.withPackages (p: [ ]);
