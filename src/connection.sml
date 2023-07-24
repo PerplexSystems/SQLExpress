@@ -1,14 +1,17 @@
 (* https://www.postgresql.org/docs/current/protocol-message-formats.html *)
-signature VENDOR_DRIVER = sig
+signature VENDOR_DRIVER =
+sig
   datatype 't Operation = OK | ERROR of 't
   val connect: unit -> (INetSock.inet, Socket.active Socket.stream) Socket.sock
   val startup: (INetSock.inet, Socket.active Socket.stream) Socket.sock -> int
-  val execute: (INetSock.inet, Socket.active Socket.stream) Socket.sock -> string -> 'a Operation
+  val execute: (INetSock.inet, Socket.active Socket.stream) Socket.sock
+               -> string
+               -> 'a Operation
   val parser: (INetSock.inet, Socket.active Socket.stream) Socket.sock -> unit
   val display: unit -> unit
 end
 
-structure PostgresClient : VENDOR_DRIVER =
+structure PostgresClient: VENDOR_DRIVER =
 struct
 
   datatype 't Operation = OK | ERROR of 't
@@ -167,17 +170,16 @@ struct
             [Word8VectorSlice.subslice (!contents, 0, SOME 4)])
         in
           case size of
-            ~1 => (
-              
-              contents := Word8VectorSlice.subslice (!contents, 4, NONE);
-              { name = (#name elem)
-              , sqlType = (#sqlType elem)
-              , records = "NULL" :: (#records elem)
-              }
-            )
+            ~1 =>
+              (
+                contents := Word8VectorSlice.subslice (!contents, 4, NONE)
+              ; { name = (#name elem)
+                , sqlType = (#sqlType elem)
+                , records = "NULL" :: (#records elem)
+                }
+              )
           | n =>
-              (print ("NULL!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" ^ (Int.toString n) ^ "\n");
-              contents := Word8VectorSlice.subslice (!contents, 4 + n, NONE)
+              ( contents := Word8VectorSlice.subslice (!contents, 4 + n, NONE)
               ; { name = (#name elem)
                 , sqlType = (#sqlType elem)
                 , records =
@@ -187,7 +189,7 @@ struct
                 }
               )
         end
-        (* handle SysErr => (print "Here!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"; elem) *)
+    (* handle SysErr => (print "Here!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"; elem) *)
     in
       print mP;
       print "\n\n";
