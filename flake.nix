@@ -1,29 +1,72 @@
 {
-  description = "SMLpg";
-
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    devenv = {
-      url = "github:cachix/devenv";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    devenv.url = "github:cachix/devenv";
   };
 
-  outputs = inputs@{ self, devenv, nixpkgs, ... }:
+  outputs = { self, nixpkgs, devenv, ... } @ inputs:
     let
-      supportedSystems = [ "x86_64-linux" "x86_64-darwin" "aarch64-darwin" ];
-
-      forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
-
-      nixpkgsFor = forAllSystems (system: import nixpkgs {
-        inherit system;
-      });
+      systems = [ "x86_64-linux" "x86_64-darwin" "aarch64-linux" "aarch64-darwin" ];
+      forAllSystems = f: builtins.listToAttrs (map (name: { inherit name; value = f name; }) systems);
     in
-    {
+      {
+        packages = forAllSystems (system:
+          let
+            pkgs = nixpkgs.legacyPackages."${system}";
+          in {
+            # docs = pkgs.stdenv.mkDerivation {
+            #   name = "docs";
+            #   src = ./.;
+
+            #   installPhase = ''
+            #     mkdir -p $out
+
+            #     # remove first heading
+            #     # sed -i '1d' README.md
+
+            #     # add frontmatter to markdown file, required by hugo
+            #     # sed -i '1s/^/---\ntitle: Railroad\n---\n\n/' README.md
+
+            #     # cp README.md $out/Railroad.md
+            #     # cp -r docs $out/
+            #   '';
+            # };
+          });
+
+      apps = forAllSystems (system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          poly = "${pkgs.polyml}/bin/polyc";
+          mktemp = "${pkgs.coreutils}/bin/mktemp";
+        in {
+          # test = {
+            # type = "app";
+            # program = toString (pkgs.writeShellScript "run-tests" ''
+              # output=$(${mktemp})
+              # ${mlton} -output $output tests/tests.mlb && $output
+            # '');
+          # };
+
+          build = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "build-program" ''
+              output=$(${mktemp})
+              ${poly} -o $output build.sml && echo "Successfully built!"
+            '');
+          };
+
+          execute = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "execute-program" ''
+              output=$(${mktemp})
+              ${poly} -o $output build.sml && $output
+            '');
+          };
+        });
+
       devShells = forAllSystems (system:
         let
-          pkgs = nixpkgsFor."${system}";
-          inherit (pkgs);
+          pkgs = nixpkgs.legacyPackages.${system};
         in
         {
           default = devenv.lib.mkShell {

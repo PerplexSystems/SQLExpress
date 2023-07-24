@@ -1,4 +1,5 @@
 Group is
+	src/md5.sml
 	src/connection.sml
 	tests/main.sml
 	build.sml
