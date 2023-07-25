@@ -1,14 +1,18 @@
-fun main _ =
+fun main () =
   let
-    val socket = PostgresClient.connect ()
+    val conn = PostgresClient.connect ("admin", "socket", "127.0.0.1", 5432)
   in
-    PostgresClient.startup socket;
-    PostgresClient.parser socket;
-    PostgresClient.execute socket "SELECT NULL AS First, 'World! :)' AS Second, NULL AS Third;";
-    PostgresClient.parser socket;
-    PostgresClient.display ();
-    PostgresClient.execute socket "SELECT 'See ya!' AS First, ':)' AS Second;";
-    PostgresClient.parser socket;
-    PostgresClient.display ();
-    Socket.close socket
+    case conn of
+      Connection.Success conn =>
+        ( PostgresClient.execute
+            ( conn
+            , "SELECT NULL AS First, 'World! :)' AS Second, NULL AS Third;"
+            )
+        ; PostgresClient.display ()
+        ; PostgresClient.execute
+            (conn, "SELECT 'See ya!' AS First, ':)' AS Second;")
+        ; PostgresClient.display ()
+        ; PostgresClient.close conn
+        )
+    | Connection.Failure message => print message
   end

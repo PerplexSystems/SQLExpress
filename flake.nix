@@ -73,7 +73,14 @@
             inherit inputs pkgs;
             modules = [
               ({ pkgs, lib, ... }: {
-                packages = [ pkgs.millet pkgs.polyml pkgs.smlfmt pkgs.gnumake pkgs.gcc pkgs.glibc ];
+                packages = [
+                  pkgs.millet
+                  pkgs.polyml
+                  pkgs.mlton # required by smlfmt
+                  pkgs.smlfmt
+                  pkgs.gnumake
+                  pkgs.gcc
+                  pkgs.glibc ];
 
                 services.postgres = {
                   package = pkgs.postgresql_15.withPackages (p: [ ]);

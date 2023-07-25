@@ -1,5 +1,5 @@
-#+TITLE: SMLpg
+#+TITLE: SQLExpress
 
 * About
-SMLpg is trying to be something analogous to what Npgsql and pq are
-for .NET and Go, but for Standard ML.
+SQLExpress is trying to be something analogous to what Npgsql and pq are
+for .NET and Go, but for Standard ML and multiple database vendors.
