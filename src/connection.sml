@@ -37,21 +37,19 @@ struct
       , Word8.andb (Word8.fromInt n, 0wxFF)
       ]
 
-  fun bytesToInt (bytes: Word8Vector.vector) =
+  fun bytesToInt32 (bytes: Word8Vector.vector) =
     let
       open Word8
       open Word8VectorSlice
       val slices = full bytes
-      val first = sub (slices, 0)
-      val second = sub (slices, 1)
-      val third = sub (slices, 2)
-      val fourth = sub (slices, 3)
-      val calculated = Word8.toInt (orb (fourth, (orb ((<<(third, 0wx8)), (orb
-        ((<<(second, 0wx16)), (<<(first, 0wx24))))))))
+      val first = Word32.fromLargeWord (Word8.toLargeWord (sub (slices, 0)))
+      val second = Word32.fromLargeWord (Word8.toLargeWord (sub (slices, 1)))
+      val third = Word32.fromLargeWord (Word8.toLargeWord (sub (slices, 2)))
+      val fourth = Word32.fromLargeWord (Word8.toLargeWord (sub (slices, 3)))
     in
-      case calculated of
-        255 => ~1 (* Overflow: Fix later with Word 32*)
-      | n => n
+      case (Word32.compare (first, 0wxFF), Word32.compare (second, 0wxFF), Word32.compare (third, 0wxFF), Word32.compare (fourth, 0wxFF)) of
+        (EQUAL, EQUAL, EQUAL, EQUAL) => ~1
+      | _ => Word32.toInt (Word32.orb (fourth, (Word32.orb ((Word32.<<(third, 0wx8)), (Word32.orb ((Word32.<<(second, 0wx16)), (Word32.<<(first, 0wx24)))))))) 
     end
 
   fun bytesToInt16 (bytes: Word8Vector.vector) =
@@ -59,10 +57,12 @@ struct
       open Word8
       open Word8VectorSlice
       val slices = full bytes
-      val first = sub (slices, 0)
-      val second = sub (slices, 1)
+      val first = Word16.fromLargeWord (Word8.toLargeWord (sub (slices, 0)))
+      val second = Word16.fromLargeWord (Word8.toLargeWord (sub (slices, 1)))
     in
-      Word8.toInt (orb (second, (<<(first, 0wx8))))
+      case (Word16.compare (first, 0wxFF), Word16.compare (second, 0wxFF)) of
+        (EQUAL, EQUAL) => ~1
+      | _ => Word16.toInt (Word16.orb (second, (Word16.<<(first, 0wx8))))
     end
 
   fun startup (socket: Socket.active INetSock.stream_sock) =
@@ -73,7 +73,7 @@ struct
       val protocolVersion = Word8Vector.fromList [0w0, 0w3, 0w0, 0w0]
       val buffer = Word8VectorSlice.full
         (Word8Vector.concat [length, protocolVersion, message])
-    (* val buf = PolyML.makestring buffer *)
+
     in
       (* print buf; *)
       (* print "\n\n"; *)
@@ -87,7 +87,7 @@ struct
       val (vec, _, _) = Word8VectorSlice.base
         (Word8VectorSlice.slice (message, 0, SOME 4))
     in
-      case (bytesToInt vec) of
+      case (bytesToInt32 vec) of
         0 => OK
       | 5 => ERROR "MD5 method not implemented."
       | _ => ERROR "Unindentified password method."
@@ -137,7 +137,7 @@ struct
         ^ (Byte.bytesToString messageType)
       val lP =
         "Length: " ^ PolyML.makestring length ^ " -> "
-        ^ (Int.toString (bytesToInt length))
+        ^ (Int.toString (bytesToInt32 length))
       fun convertHeaders contents _ =
         let
           val reference = !contents
@@ -160,19 +160,18 @@ struct
                 , records = []
                 }
               )
-          | NONE => raise Fail "Could not find null terminated"
-        (* ; print ("FIELD: " ^ (!fieldName) ^ "\n") *)
+          | NONE => raise Fail "Could not find null terminator"
         end
       fun convertData (elem: Retrieval) contents : Retrieval =
         let
           val reference = !contents
-          val size = bytesToInt (Word8VectorSlice.concat
+          val size = bytesToInt32 (Word8VectorSlice.concat
             [Word8VectorSlice.subslice (!contents, 0, SOME 4)])
         in
           case size of
             ~1 =>
-              (
-                contents := Word8VectorSlice.subslice (!contents, 4, NONE)
+              ( print "NULL!!!!!!!!!!!!!!!!!!1\n"
+              ; contents := Word8VectorSlice.subslice (!contents, 4, NONE)
               ; { name = (#name elem)
                 , sqlType = (#sqlType elem)
                 , records = "NULL" :: (#records elem)
@@ -198,7 +197,7 @@ struct
       case (Byte.bytesToString messageType) of
         "R" =>
           ( print "Authenticating\n"
-          ; password (Socket.recvVec (socket, (bytesToInt length) - 4))
+          ; password (Socket.recvVec (socket, (bytesToInt32 length) - 4))
           ; Posix.Process.sleep (Time.fromSeconds 1)
           ; parser socket
           )
@@ -214,25 +213,25 @@ struct
               ("ERROR: "
                ^
                (Byte.bytesToString (Socket.recvVec
-                  (socket, (bytesToInt length) - 4))) ^ "\n")
+                  (socket, (bytesToInt32 length) - 4))) ^ "\n")
           ; Posix.Process.sleep (Time.fromSeconds 1)
           ; parser socket
           )
       | "S" =>
           ( print "Syncing...\n"
-          ; Socket.recvVec (socket, (bytesToInt length) - 4)
+          ; Socket.recvVec (socket, (bytesToInt32 length) - 4)
           ; (* Posix.Process.sleep (Time.fromSeconds 1); *) parser socket
           )
       | "K" =>
           ( print "BackendKeyData\n"
-          ; Socket.recvVec (socket, (bytesToInt length) - 4)
+          ; Socket.recvVec (socket, (bytesToInt32 length) - 4)
           ; parser socket
           )
       | "T" =>
           (let
              val numberOfHeaders = bytesToInt16 (Socket.recvVec (socket, 2))
              val contents = ref (Word8VectorSlice.full (Socket.recvVec
-               (socket, (bytesToInt length) - 4 - 2)))
+               (socket, (bytesToInt32 length) - 4 - 2)))
            in
              print ("Receiving " ^ Int.toString numberOfHeaders ^ " headers\n");
              if numberOfHeaders <> 0 then
@@ -248,7 +247,7 @@ struct
           let
             val numberOfColumns = bytesToInt16 (Socket.recvVec (socket, 2))
             val contents = ref (Word8VectorSlice.full (Socket.recvVec
-              (socket, (bytesToInt length) - 4 - 2)))
+              (socket, (bytesToInt32 length) - 4 - 2)))
           in
             if numberOfColumns <> 0 then
               ( results
@@ -262,7 +261,7 @@ struct
           end
       | _ =>
           ( print "Ignoring"
-          ; Socket.recvVec (socket, (bytesToInt length) - 4)
+          ; Socket.recvVec (socket, (bytesToInt32 length) - 4)
           ; Posix.Process.sleep (Time.fromSeconds 1)
           ; parser socket
           )
