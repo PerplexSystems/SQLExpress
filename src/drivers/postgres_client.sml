@@ -147,9 +147,8 @@ struct
     end
     handle ex => Connection.Failure (exnMessage ex)
 
-  type Retrieval = {name: string, sqlType: string, records: string list}
-  val results: Retrieval list ref = ref []
-
+  type QueryResult = {name: string, sqlType: string, records: string list}
+  val results: QueryResult list ref = ref []
 
   fun fetch (conn: Connection.connection) =
     let
@@ -178,7 +177,7 @@ struct
               )
           | NONE => raise Fail "Could not find null terminator"
         end
-      fun convertData (elem: Retrieval) contents : Retrieval =
+      fun convertData (elem: QueryResult) contents : QueryResult =
         let
           val reference = !contents
           val size = bytesToInt32 (Word8VectorSlice.concat
@@ -242,7 +241,7 @@ struct
             if numberOfColumns <> 0 then
               ( results
                 :=
-                (List.map (fn (elem: Retrieval) => convertData elem contents)
+                (List.map (fn (elem: QueryResult) => convertData elem contents)
                    (!results))
               ; fetch conn
               )
@@ -277,12 +276,18 @@ struct
       fetch conn
     end
 
-  fun close conn =
+  fun close (conn: Connection.connection) =
     Socket.close conn
     handle _ => () (* Already closed *)
 
+  fun query (conn: Connection.connection, queryString: string): QueryResult list = (
+    execute(conn, queryString);
+    !results
+  )
+
   fun display () =
-    let val str = PolyML.makestring (!results)
+    let 
+      val str = PolyML.makestring (!results)
     in print (str ^ "\n")
     end
 end

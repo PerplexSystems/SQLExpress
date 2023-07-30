@@ -6,11 +6,12 @@ fun main () =
       Connection.Success conn =>
         ( PostgresClient.execute
             ( conn
-            , "SELECT NULL AS First, 'World! :)' AS Second, NULL AS Third;"
+            , "CREATE TABLE editors(name VARCHAR(20) NOT NULL PRIMARY KEY, language VARCHAR(20) NOT NULL);"
             )
-        ; PostgresClient.display ()
         ; PostgresClient.execute
-            (conn, "SELECT 'See ya!' AS First, ':)' AS Second;")
+            (conn, "INSERT INTO editors(name, language) VALUES ('GNU/Emacs', 'Emacs Lisp'), ('Vim', 'Vimscript');")
+        ; PostgresClient.execute
+            (conn, "SELECT * FROM editors;")
         ; PostgresClient.display ()
         ; PostgresClient.close conn
         )
