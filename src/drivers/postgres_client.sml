@@ -111,7 +111,6 @@ struct
       case (Byte.bytesToString messageType) of
         "R" =>
           ( handlePassword (Socket.recvVec (conn, (bytesToInt32 length) - 4))
-          ; Posix.Process.sleep (Time.fromSeconds 1)
           ; authenticateAndSync conn
           )
       | "S" =>
@@ -123,8 +122,7 @@ struct
           ; authenticateAndSync conn
           )
       | "Z" =>
-          ( Posix.Process.sleep (Time.fromSeconds 1)
-          ; metadata
+          ( metadata
             :=
             SOME
               {transactionStatus = Byte.bytesToString (Socket.recvVec (conn, 1))}
@@ -208,8 +206,7 @@ struct
     in
       case (Byte.bytesToString messageType) of
         "Z" =>
-          ( Posix.Process.sleep (Time.fromSeconds 1)
-          ; metadata
+          ( metadata
             :=
             SOME
               {transactionStatus = Byte.bytesToString (Socket.recvVec (conn, 1))}
@@ -220,7 +217,6 @@ struct
                ^
                (Byte.bytesToString (Socket.recvVec
                   (conn, (bytesToInt32 length) - 4))) ^ "\n")
-          ; Posix.Process.sleep (Time.fromSeconds 1)
           ; fetch conn
           )
       | "T" =>
@@ -255,12 +251,10 @@ struct
           end
       | "C" => (* Message close after a query *)
           ( Socket.recvVec (conn, (bytesToInt32 length) - 4)
-          ; Posix.Process.sleep (Time.fromSeconds 1)
           ; fetch conn
           )
       | otherwise =>
           ( Socket.recvVec (conn, (bytesToInt32 length) - 4)
-          ; Posix.Process.sleep (Time.fromSeconds 1)
           ; raise Fail
               ("Messages expected to come in order, received: " ^ otherwise)
           )
