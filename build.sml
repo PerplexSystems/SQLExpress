@@ -1,1 +1,6 @@
-app use ["src/md5.sml", "src/connection.sml", "tests/main.sml"];
+app use
+  [ "src/connection.sig"
+  , "src/vendor_driver.sig"
+  , "src/drivers/postgres_client.sml"
+  , "tests/main.sml"
+  ];

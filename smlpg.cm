@@ -1,5 +1,6 @@
 Group is
-	src/md5.sml
-	src/connection.sml
+	src/connection.sig
+	src/vendor_driver.sig
+	src/drivers/postgres_client.sml
 	tests/main.sml
 	build.sml
