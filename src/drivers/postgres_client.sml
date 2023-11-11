@@ -12,6 +12,18 @@ struct
   infix 3 ||>
   fun (x, y) ||> f = f (x, y) (* Left application  *)
 
+  datatype SQLType
+    = Varchar
+    | Date4
+
+  val postgresTypeTable =
+    (* TODO: Refactor later with a proper hashmap *)
+    let val table = []
+    in (
+      (1082, Date4)::(1043, Varchar)::table      
+    )
+    end
+
   fun convertString (elem: string) =
     (Word8Vector.fromList (List.map Byte.charToByte (String.explode elem)))
 
@@ -147,8 +159,32 @@ struct
     end
     handle ex => Connection.Failure (exnMessage ex)
 
-  type QueryResult = {name: string, sqlType: string, records: string list}
+  datatype TypeSize =
+      Variable
+    | Fixed of int
+  type QueryResult = 
+    { name: string,
+      sqlTypeId: int,
+      records: string list,
+      tableObjectId: int,
+      column: int,
+      sqlTypeSize: TypeSize }
   val results: QueryResult list ref = ref []
+
+  fun display () =
+    let 
+      val str = PolyML.makestring (!results)
+    in print (str ^ "\n")
+    end
+
+  fun debug something =
+    let 
+      val str = PolyML.makestring something
+    in print (str ^ "\n")
+    end
+
+  fun getType identifier =
+    HashTable.find postgresTypeTable identifier
 
   fun fetch (conn: Connection.connection) =
     let
@@ -157,24 +193,38 @@ struct
       fun convertHeaders contents _ =
         let
           val reference = !contents
+          val foundIndex = 
+            Word8VectorSlice.findi (fn (_, byte) => byte = 0wx0) reference
+            |> Option.map (fn (index, _) => index)
+          fun composeType initialIndex =
+            let 
+              val composition: QueryResult = 
+                { name = Byte.bytesToString (Word8VectorSlice.concat [Word8VectorSlice.subslice (reference, 0, SOME initialIndex)])
+                , tableObjectId = bytesToInt32 (Word8VectorSlice.concat [Word8VectorSlice.subslice (reference, initialIndex + 1, SOME 4)])
+                , records = []
+                , column = bytesToInt16 (Word8VectorSlice.concat [Word8VectorSlice.subslice (reference, initialIndex + 5, SOME 2)])
+                , sqlTypeId = bytesToInt32 (Word8VectorSlice.concat [Word8VectorSlice.subslice (reference, initialIndex + 7, SOME 4)])
+                , sqlTypeSize = 
+                    let val sqlTypeSize = bytesToInt16 (Word8VectorSlice.concat [Word8VectorSlice.subslice (reference, initialIndex + 11, SOME 2)])
+                    in if sqlTypeSize < 0
+                    then Variable
+                    else Fixed sqlTypeSize
+                    end }
+            in composition
+            end
         in
-          case Word8VectorSlice.findi (fn (_, byte) => byte = 0wx0) (!contents) of
-            SOME (index, _) =>
-              ( contents
-                :=
-                Word8VectorSlice.subslice
+          case foundIndex of
+            SOME stringIndex => (
+              contents
+                := Word8VectorSlice.subslice
                   ( !contents
-                  , index
+                  , stringIndex
                     +
                     19 (* integers in the message for this field + 1 NULL byte *)
                   , NONE
-                  )
-              ; { name = Byte.bytesToString (Word8VectorSlice.concat
-                    [Word8VectorSlice.subslice (reference, 0, SOME index)])
-                , sqlType = "X"
-                , records = []
-                }
-              )
+                  );
+              composeType stringIndex
+            )
           | NONE => raise Fail "Could not find null terminator"
         end
       fun convertData (elem: QueryResult) contents : QueryResult =
@@ -187,19 +237,23 @@ struct
             ~1 =>
               ( contents := Word8VectorSlice.subslice (!contents, 4, NONE)
               ; { name = (#name elem)
-                , sqlType = (#sqlType elem)
+                , sqlTypeId = (#sqlTypeId elem)
                 , records = "NULL" :: (#records elem)
-                }
+                , column = (#column elem)
+                , tableObjectId = (#tableObjectId elem)
+                , sqlTypeSize = (#sqlTypeSize elem) }
               )
           | n =>
               ( contents := Word8VectorSlice.subslice (!contents, 4 + n, NONE)
               ; { name = (#name elem)
-                , sqlType = (#sqlType elem)
+                , sqlTypeId = (#sqlTypeId elem)
                 , records =
                     (Byte.bytesToString (Word8VectorSlice.concat
                        [Word8VectorSlice.subslice (reference, 4, SOME n)]))
                     :: (#records elem)
-                }
+                , column = (#column elem)
+                , tableObjectId = (#tableObjectId elem)
+                , sqlTypeSize = (#sqlTypeSize elem) }
               )
         end
     in
@@ -284,10 +338,4 @@ struct
     execute(conn, queryString);
     !results
   )
-
-  fun display () =
-    let 
-      val str = PolyML.makestring (!results)
-    in print (str ^ "\n")
-    end
 end
